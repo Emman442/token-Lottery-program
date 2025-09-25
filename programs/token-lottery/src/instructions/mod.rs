@@ -1,3 +1,25 @@
-pub mod initialize;
+pub mod initialize_config;
+pub use initialize_config::*;
 
-pub use initialize::*;
+
+pub mod initialize_lottery;
+pub use initialize_lottery::*;
+
+pub mod buy_ticket;
+pub use buy_ticket::*;
+
+
+pub mod commit_randomness;
+pub use commit_randomness::*;
+
+pub mod commit_winner;
+pub use commit_winner::*;
+
+pub mod choose_winner;
+pub use choose_winner::*;
+
+
+
+pub mod claim_winnings;
+pub use claim_winnings::*;
+
