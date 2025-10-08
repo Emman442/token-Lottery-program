@@ -1,0 +1,28 @@
+[package]
+name = "token-lottery"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "token_lottery"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+
+[dependencies]
+anchor-lang = {version="0.31.1", features = ["init-if-needed"]}
+anchor-spl = {version = "0.31.1", features=["metadata"]}
+ephemeral-vrf-sdk = {version = "0.2.0", features = ["anchor"]}
+base64ct = "=1.7.3"
+
+
+[patch.crates-io]
+# ephemeral-vrf-sdk = { git = "https://github.com/magicblock-labs/ephemeral-vrf-sdk", branch = "main" }
