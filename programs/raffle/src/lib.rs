@@ -7,7 +7,6 @@ use ephemeral_vrf_sdk::anchor::vrf;
 use ephemeral_vrf_sdk::instructions::{create_request_randomness_ix, RequestRandomnessParams};
 use anchor_spl::metadata::{sign_metadata, SignMetadata};
 use anchor_spl::{associated_token::AssociatedToken, metadata::{create_master_edition_v3, create_metadata_accounts_v3, mpl_token_metadata::types::{CollectionDetails, Creator, DataV2}, set_and_verify_sized_collection_item, CreateMasterEditionV3, CreateMetadataAccountsV3, Metadata, SetAndVerifySizedCollectionItem}, token_interface::{mint_to, Mint, MintTo, TokenAccount, TokenInterface}};
-// use crate::{instruction, ID};
 use anchor_spl::metadata::MetadataAccount;
 
 #[constant]
@@ -22,8 +21,7 @@ pub const symbol: &str="TLT";
 #[constant]
 pub const url: &str="https://raw.githubusercontent.com/Emman442/Quiz-application-with-leaderboard-feature/main/mpl.json
 ";
-declare_id!("6cp3DywM8M1vJ9xHcbZSkemnXnue5mPNBW8gqYH6Sb2d");
-
+declare_id!("8dQUiueeTR8FTQcb1i7FWC7peG412Bo16S57ftNdZEB2");
 #[program]
 pub mod raffle {
     use super::*;
@@ -160,7 +158,7 @@ pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
 
 
 pub fn commit_winner(ctx: Context<CommitWinner>) -> Result<()> {
-    msg!("🎲 Callback invoked with randomness!");
+  
 
     let token_lottery = &mut ctx.accounts.token_lottery;
     if ctx.accounts.payer.key() != token_lottery.authority {
@@ -204,9 +202,9 @@ pub fn commit_winner(ctx: Context<CommitWinner>) -> Result<()> {
 }
 
 pub fn callback_choose_winner(ctx: Context<CallbackChooseWinnerCtx>,randomness: [u8; 32]) -> Result<()> {
+      msg!("🎲 Callback invoked with randomness!");
     let clock = Clock::get()?;
 
-    msg!("Clockkkkkkkkkkkkkkkkkkk");
     let token_lottery = &mut ctx.accounts.token_lottery;
 
     // if clock.slot < token_lottery.end_time {
@@ -384,6 +382,7 @@ pub struct CommitWinner<'info> {
     /// CHECK: The oracle queue
     #[account(mut, address = ephemeral_vrf_sdk::consts::DEFAULT_QUEUE)]
     pub oracle_queue: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]

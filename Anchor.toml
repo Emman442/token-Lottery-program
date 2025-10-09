@@ -6,13 +6,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-raffle = "6cp3DywM8M1vJ9xHcbZSkemnXnue5mPNBW8gqYH6Sb2d"
+raffle = "8dQUiueeTR8FTQcb1i7FWC7peG412Bo16S57ftNdZEB2"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
