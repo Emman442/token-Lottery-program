@@ -1137,6 +1137,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "base64ct",
+ "bs58",
  "ephemeral-vrf-sdk",
 ]
 

@@ -8,7 +8,7 @@ use ephemeral_vrf_sdk::instructions::{create_request_randomness_ix, RequestRando
 use anchor_spl::metadata::{sign_metadata, SignMetadata};
 use anchor_spl::{associated_token::AssociatedToken, metadata::{create_master_edition_v3, create_metadata_accounts_v3, mpl_token_metadata::types::{CollectionDetails, Creator, DataV2}, set_and_verify_sized_collection_item, CreateMasterEditionV3, CreateMetadataAccountsV3, Metadata, SetAndVerifySizedCollectionItem}, token_interface::{mint_to, Mint, MintTo, TokenAccount, TokenInterface}};
 use anchor_spl::metadata::MetadataAccount;
-
+use bs58;
 #[constant]
 pub const SEED: &str = "anchor";
 
@@ -21,7 +21,7 @@ pub const symbol: &str="TLT";
 #[constant]
 pub const url: &str="https://raw.githubusercontent.com/Emman442/Quiz-application-with-leaderboard-feature/main/mpl.json
 ";
-declare_id!("8dQUiueeTR8FTQcb1i7FWC7peG412Bo16S57ftNdZEB2");
+declare_id!("Bz4YFV9JkqaoTGroeUd3xLkiepVeGnjPjTmYu2ug9BAj");
 #[program]
 pub mod raffle {
     use super::*;
@@ -157,7 +157,7 @@ pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
     }
 
 
-pub fn commit_winner(ctx: Context<CommitWinner>) -> Result<()> {
+pub fn commit_winner(ctx: Context<CommitWinner>, client_seed: u8) -> Result<()> {
   
 
     let token_lottery = &mut ctx.accounts.token_lottery;
@@ -166,16 +166,24 @@ pub fn commit_winner(ctx: Context<CommitWinner>) -> Result<()> {
     }
 
     let clock = Clock::get()?;
-    let mut seed_data = Vec::new();
-    seed_data.extend_from_slice(&clock.slot.to_le_bytes());
-    seed_data.extend_from_slice(ctx.accounts.payer.key().as_ref());
-    seed_data.extend_from_slice(&ctx.accounts.token_lottery.total_tickets.to_le_bytes());
+    // let mut seed_data = Vec::new();
+    // seed_data.extend_from_slice(&clock.slot.to_le_bytes());
+    // seed_data.extend_from_slice(ctx.accounts.payer.key().as_ref());
+    // seed_data.extend_from_slice(&ctx.accounts.token_lottery.total_tickets.to_le_bytes());
 
-    // Create a deterministic hash and truncate to 32 bytes
-    let hash_bytes = hash(&seed_data).to_bytes();
-    let client_seed: [u8; 32] = hash_bytes;
+    // // Create a deterministic hash and truncate to 32 bytes
+    // let hash_bytes = hash(&seed_data).to_bytes();
+    // let client_seed: [u8; 32] = hash_bytes;
+//      let callback_discriminator = {
+//         let preimage = "global:callback_choose_winner";
+//         let hash_result = hash(preimage.as_bytes());
+//         hash_result.to_bytes()[..8].to_vec()
+//     };
 
-
+//     msg!(
+//     "Callback discriminator (base58): {}",
+//     bs58::encode(instruction::CallbackChooseWinner::DISCRIMINATOR).into_string()
+// );
 
     msg!("Requesting randomness...");
     let ix = create_request_randomness_ix(RequestRandomnessParams {
@@ -183,7 +191,7 @@ pub fn commit_winner(ctx: Context<CommitWinner>) -> Result<()> {
         oracle_queue: ctx.accounts.oracle_queue.key(),
         callback_program_id: ID,
         callback_discriminator:  instruction::CallbackChooseWinner::DISCRIMINATOR.to_vec(),
-        caller_seed: client_seed,
+        caller_seed: [client_seed;32],
         // Specify any account that is required by the callback
         accounts_metas: Some(vec![SerializableAccountMeta {
             pubkey: ctx.accounts.token_lottery.key(),
@@ -457,7 +465,6 @@ pub struct ClaimWinnings<'info> {
     pub system_program: Program<'info, System>,
     pub token_metadata_program: Program<'info, Metadata>,
 }
-
 
 
 #[derive(Accounts)]
