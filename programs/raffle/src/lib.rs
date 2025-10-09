@@ -21,7 +21,7 @@ pub const symbol: &str="TLT";
 #[constant]
 pub const url: &str="https://raw.githubusercontent.com/Emman442/Quiz-application-with-leaderboard-feature/main/mpl.json
 ";
-declare_id!("Bz4YFV9JkqaoTGroeUd3xLkiepVeGnjPjTmYu2ug9BAj");
+declare_id!("BfJH9zTTjpN7qXpZ34FXbap7udPfUE8nzCKYfDG327XL");
 #[program]
 pub mod raffle {
     use super::*;
@@ -225,12 +225,10 @@ pub fn callback_choose_winner(ctx: Context<CallbackChooseWinnerCtx>,randomness: 
         ErrorCode::WinnerChosen
     );
 
-    let random_number = ephemeral_vrf_sdk::rnd::random_u64(&randomness);
-    let winner_index = random_number % token_lottery.total_tickets;
-
-    token_lottery.winner = winner_index;
-    token_lottery.winner_chosen = true;
-
+    let random_number = ephemeral_vrf_sdk::rnd::random_u8_with_range(&randomness, 1, token_lottery.total_tickets as u8);
+  let winner_index = random_number as u64;
+token_lottery.winner = winner_index;
+token_lottery.winner_chosen = true;
     emit!(SelectWinner {
         winner: ctx.accounts.token_lottery.winner,
         winner_chosen: ctx.accounts.token_lottery.winner_chosen
@@ -471,8 +469,8 @@ pub struct ClaimWinnings<'info> {
 pub struct CallbackChooseWinnerCtx<'info> {
     #[account(
         mut,
-        seeds = [b"token_lottery".as_ref()],
-        bump = token_lottery.bump,
+        // seeds = [b"token_lottery".as_ref()],
+        // bump = token_lottery.bump,
     )]
     pub token_lottery: Account<'info, TokenLottery>,
 
