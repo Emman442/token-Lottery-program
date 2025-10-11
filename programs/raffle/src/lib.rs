@@ -200,12 +200,14 @@ pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
 
 
 pub fn commit_winner(ctx: Context<CommitWinner>, client_seed: u8) -> Result<()> {
-  
-
+        let clock = Clock::get()?;
     let token_lottery = &mut ctx.accounts.token_lottery;
     if ctx.accounts.payer.key() != token_lottery.authority {
         return Err(ErrorCode::NotAuthorized.into());
     }
+
+      require!(clock.slot >= token_lottery.end_time, ErrorCode::LotteryNotCompleted);
+    require!(!token_lottery.winner_chosen, ErrorCode::WinnerChosen);
 
     let clock = Clock::get()?;
     msg!("Requesting randomness...");
