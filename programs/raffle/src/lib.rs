@@ -6,9 +6,11 @@ use ephemeral_vrf_sdk::types::SerializableAccountMeta;
 use ephemeral_vrf_sdk::anchor::vrf;
 use ephemeral_vrf_sdk::instructions::{create_request_randomness_ix, RequestRandomnessParams};
 use anchor_spl::metadata::{sign_metadata, SignMetadata};
-use anchor_spl::{associated_token::AssociatedToken, metadata::{create_master_edition_v3, create_metadata_accounts_v3, mpl_token_metadata::types::{CollectionDetails, Creator, DataV2}, set_and_verify_sized_collection_item, CreateMasterEditionV3, CreateMetadataAccountsV3, Metadata, SetAndVerifySizedCollectionItem}, token_interface::{mint_to, Mint, MintTo, TokenAccount, TokenInterface}};
+use anchor_spl::{associated_token::AssociatedToken, metadata::{create_master_edition_v3, create_metadata_accounts_v3, mpl_token_metadata::types::{CollectionDetails, Creator, DataV2}, set_and_verify_sized_collection_item, CreateMasterEditionV3, CreateMetadataAccountsV3, Metadata, SetAndVerifySizedCollectionItem}};
 use anchor_spl::metadata::MetadataAccount;
-use bs58;
+use anchor_spl::token_interface::{
+    Mint, TokenAccount, TokenInterface, MintTo, TransferChecked, mint_to, transfer_checked
+};
 #[constant]
 pub const SEED: &str = "anchor";
 
@@ -21,12 +23,10 @@ pub const symbol: &str="TLT";
 #[constant]
 pub const url: &str="https://raw.githubusercontent.com/Emman442/Quiz-application-with-leaderboard-feature/main/mpl.json
 ";
-declare_id!("BfJH9zTTjpN7qXpZ34FXbap7udPfUE8nzCKYfDG327XL");
+declare_id!("ErBDUqKcGRJWSStKB5cjUEB5YWkzfJNrGfkCxMr3XAfQ");
 #[program]
 pub mod raffle {
     use super::*;
-
-    
 
 pub fn buy_ticket(ctx: Context<BuyTicket>)->Result<()>{
 
@@ -39,7 +39,19 @@ pub fn buy_ticket(ctx: Context<BuyTicket>)->Result<()>{
 
     //Transfer tokens to the vault
 
-    system_program::transfer(CpiContext::new(ctx.accounts.system_program.to_account_info(), system_program::Transfer { from: ctx.accounts.payer.to_account_info(), to: ctx.accounts.token_lottery.to_account_info() }), ctx.accounts.token_lottery.ticket_price)?;
+     let decimals = ctx.accounts.token_mint.decimals;
+ 
+        let cpi_accounts = TransferChecked {
+            mint: ctx.accounts.token_mint.to_account_info(),
+            from: ctx.accounts.payer_token_account.to_account_info(),
+            to: ctx.accounts.raffle_vault_account.to_account_info(),
+            authority: ctx.accounts.payer.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_context = CpiContext::new(cpi_program, cpi_accounts);
+        transfer_checked(cpi_context, ctx.accounts.token_lottery.ticket_price, decimals)?;
+
+        ctx.accounts.token_lottery.pot_amount = ctx.accounts.token_lottery.pot_amount.checked_add(ctx.accounts.token_lottery.ticket_price).unwrap();
 
     let signer_seeds: &[&[&[u8]]] = &[&[
         b"collection_mint".as_ref(),
@@ -119,6 +131,23 @@ pub fn buy_ticket(ctx: Context<BuyTicket>)->Result<()>{
     Ok(())
 } 
 
+pub fn restart_lottery(
+    ctx: Context<RestartLottery>,
+    new_start_time: u64,
+    new_end_time: u64,
+    new_ticket_price: u64,
+) -> Result<()> {
+    let lottery = &mut ctx.accounts.token_lottery;
+    lottery.start_time = new_start_time;
+    lottery.end_time = new_end_time;
+    lottery.ticket_price = new_ticket_price;
+    lottery.total_tickets = 0;
+    lottery.winner_chosen = false;
+    lottery.winner = 0;
+    lottery.pot_amount = 0;
+    Ok(())
+}
+
 
 pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
         // Check if winner has been chosen
@@ -140,10 +169,23 @@ pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
         require!(metadata_name == ticket_name, ErrorCode::IncorrectTicket);
         require!(ctx.accounts.destination.amount > 0, ErrorCode::IncorrectTicket);
 
-        **ctx.accounts.token_lottery.to_account_info().try_borrow_mut_lamports()? -= ctx.accounts.token_lottery.pot_amount;
-        **ctx.accounts.payer.try_borrow_mut_lamports()? += ctx.accounts.token_lottery.pot_amount;
+          let seeds = &[b"token_lottery".as_ref(), &[ctx.bumps.token_lottery]];
+    let signer = &[&seeds[..]];
 
-        ctx.accounts.token_lottery.pot_amount = 0;
+    let decimals = ctx.accounts.reward_mint.decimals;
+
+    let cpi_accounts = TransferChecked {
+        from: ctx.accounts.reward_vault.to_account_info(),
+        to: ctx.accounts.winner_token_account.to_account_info(),
+        mint: ctx.accounts.reward_mint.to_account_info(),
+        authority: ctx.accounts.token_lottery.to_account_info(),
+    };
+
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+
+    transfer_checked(cpi_ctx, ctx.accounts.token_lottery.pot_amount, decimals)?;
+
 
 
         emit!(
@@ -166,25 +208,6 @@ pub fn commit_winner(ctx: Context<CommitWinner>, client_seed: u8) -> Result<()> 
     }
 
     let clock = Clock::get()?;
-    // let mut seed_data = Vec::new();
-    // seed_data.extend_from_slice(&clock.slot.to_le_bytes());
-    // seed_data.extend_from_slice(ctx.accounts.payer.key().as_ref());
-    // seed_data.extend_from_slice(&ctx.accounts.token_lottery.total_tickets.to_le_bytes());
-
-    // // Create a deterministic hash and truncate to 32 bytes
-    // let hash_bytes = hash(&seed_data).to_bytes();
-    // let client_seed: [u8; 32] = hash_bytes;
-//      let callback_discriminator = {
-//         let preimage = "global:callback_choose_winner";
-//         let hash_result = hash(preimage.as_bytes());
-//         hash_result.to_bytes()[..8].to_vec()
-//     };
-
-//     msg!(
-//     "Callback discriminator (base58): {}",
-//     bs58::encode(instruction::CallbackChooseWinner::DISCRIMINATOR).into_string()
-// );
-
     msg!("Requesting randomness...");
     let ix = create_request_randomness_ix(RequestRandomnessParams {
         payer: ctx.accounts.payer.key(),
@@ -225,7 +248,9 @@ pub fn callback_choose_winner(ctx: Context<CallbackChooseWinnerCtx>,randomness: 
         ErrorCode::WinnerChosen
     );
 
-    let random_number = ephemeral_vrf_sdk::rnd::random_u8_with_range(&randomness, 1, token_lottery.total_tickets as u8);
+    require!(token_lottery.total_tickets > 0, ErrorCode::LotteryNotCompleted);
+
+    let random_number = ephemeral_vrf_sdk::rnd::random_u8_with_range(&randomness, 0, token_lottery.total_tickets as u8 - 1);
   let winner_index = random_number as u64;
 token_lottery.winner = winner_index;
 token_lottery.winner_chosen = true;
@@ -419,10 +444,22 @@ pub struct ClaimWinnings<'info> {
     #[account(
         mut,
         seeds = [b"token_lottery".as_ref()],
-        bump = token_lottery.bump,
+        bump
     )]
-    pub token_lottery: Account<'info, TokenLottery
-    >,
+    pub token_lottery: Account<'info, TokenLottery>,
+
+    pub reward_mint: InterfaceAccount<'info, Mint>,
+
+   #[account(
+    mut,
+    associated_token::mint = reward_mint,
+    associated_token::authority = token_lottery,
+    associated_token::token_program = token_program,
+)]
+pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub winner_token_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
@@ -463,21 +500,31 @@ pub struct ClaimWinnings<'info> {
     pub system_program: Program<'info, System>,
     pub token_metadata_program: Program<'info, Metadata>,
 }
+#[derive(Accounts)]
+pub struct RestartLottery<'info> {
+    #[account(
+        mut,
+        seeds = [b"token_lottery"],
+        bump = token_lottery.bump,
+    )]
+    pub token_lottery: Account<'info, TokenLottery>,
 
+    pub authority: Signer<'info>,
+}
 
 #[derive(Accounts)]
 pub struct CallbackChooseWinnerCtx<'info> {
+      /// This check ensure that the vrf_program_identity (which is a PDA) is a singer
+    /// enforcing the callback is executed by the VRF program trough CPI
+    #[account(address = ephemeral_vrf_sdk::consts::VRF_PROGRAM_IDENTITY)]
+    pub vrf_program_identity: Signer<'info>,
+
     #[account(
         mut,
         // seeds = [b"token_lottery".as_ref()],
         // bump = token_lottery.bump,
     )]
     pub token_lottery: Account<'info, TokenLottery>,
-
-    /// This check ensure that the vrf_program_identity (which is a PDA) is a singer
-    /// enforcing the callback is executed by the VRF program trough CPI
-    #[account(address = ephemeral_vrf_sdk::consts::VRF_PROGRAM_IDENTITY)]
-    pub vrf_program_identity: Signer<'info>,
 }
 
 
@@ -491,7 +538,28 @@ pub struct BuyTicket<'info>{
         seeds=[b"token_lottery".as_ref()],
         bump=token_lottery.bump
     )]
-    pub token_lottery: Account<'info, TokenLottery>,
+    pub token_lottery: Box<Account<'info, TokenLottery>>,
+
+
+      #[account(
+        mut,
+        constraint = payer_token_account.mint == token_mint.key()
+        ,
+        constraint = payer_token_account.owner == payer.key(),
+    )]
+    pub payer_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(
+   init_if_needed,
+   payer = payer,
+   associated_token::mint = token_mint,
+   associated_token::authority = token_lottery,
+   associated_token::token_program = token_program,
+)]
+pub raffle_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
+
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         init,
@@ -503,7 +571,7 @@ pub struct BuyTicket<'info>{
         mint::freeze_authority=collection_mint,
         mint::token_program=token_program
     )]
-    pub ticket_mint: InterfaceAccount<'info, Mint>,
+    pub ticket_mint: Box<InterfaceAccount<'info, Mint>>,
 
      #[account(
             mut, 
@@ -513,6 +581,16 @@ pub struct BuyTicket<'info>{
         )]
     ///CHECK: These are checked by the token metadata program
     pub ticket_metadata: UncheckedAccount<'info>,
+
+       #[account(
+        init,
+        payer=payer,
+        associated_token::mint=ticket_mint,
+        associated_token::authority=payer,
+        associated_token::token_program=token_program
+    )]
+    pub destination: Box<InterfaceAccount<'info, TokenAccount>>,
+
 
      #[account(
             mut, 
@@ -542,21 +620,13 @@ pub struct BuyTicket<'info>{
     pub collection_master_edition: UncheckedAccount<'info>,
 
      pub token_metadata_program: Program<'info, Metadata>,
-     #[account(
-        init,
-        payer=payer,
-        associated_token::mint=ticket_mint,
-        associated_token::authority=payer,
-        associated_token::token_program=token_program
-     )]
-     pub destination: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         seeds=[b"collection_mint".as_ref()] ,
         bump
     )]
-    pub collection_mint: InterfaceAccount<'info, Mint>,
+    pub collection_mint: Box<InterfaceAccount<'info, Mint>>,
 
      #[account(
         mut,
@@ -584,6 +654,7 @@ pub struct BuyTicket<'info>{
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>
 }
+
 
 
 

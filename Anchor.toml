@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-raffle = "BfJH9zTTjpN7qXpZ34FXbap7udPfUE8nzCKYfDG327XL"
+raffle = "ErBDUqKcGRJWSStKB5cjUEB5YWkzfJNrGfkCxMr3XAfQ"
 
 [registry]
 url = "https://api.apr.dev"

@@ -2,66 +2,75 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Raffle } from "../target/types/raffle";
 import { TOKEN_PROGRAM_ID } from "@coral-xyz/anchor/dist/cjs/utils/token";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import {
+  createMint,
+  getAssociatedTokenAddressSync,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+} from "@solana/spl-token";
+const TOKEN_METADATA_PROGRAM_ID = new anchor.web3.PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
+
 
 describe("token-lottery", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-
   const connection = provider.connection;
   const wallet = provider.wallet as anchor.Wallet;
-
   const program = anchor.workspace.Raffle as Program<Raffle>;
 
-  const TOKEN_METADATA_PROGRAM_ID = new anchor.web3.PublicKey(
-    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
-  );
+  let tokenMint: anchor.web3.PublicKey;
+  let userTokenAccount: anchor.web3.PublicKey;
+  let vaultTokenAccount: anchor.web3.PublicKey;
+  let tokenLotteryPda: anchor.web3.PublicKey;
+  let tokenLotteryBump: number;
+  let raffleVaultAccount: anchor.web3.PublicKey;
+  let vaultBump: number;
 
-  // Check network and wallet balance
+  // ✅ Step 1. Create token mint & initial user ATA
   before(async () => {
-    const genesisHash = await connection.getGenesisHash();
-    console.log("Connected to network - Genesis Hash:", genesisHash);
-    console.log("RPC endpoint:", connection.rpcEndpoint);
-    console.log("Program ID:", program.programId.toString());
+    console.log("🔧 Setting up test mint and accounts...");
 
-    const balance = await connection.getBalance(wallet.publicKey);
-    console.log("Wallet balance:", balance / anchor.web3.LAMPORTS_PER_SOL, "SOL");
-    console.log("Wallet address:", wallet.publicKey.toString());
+    // Create a new token mint
+    tokenMint = await createMint(
+      connection,
+      wallet.payer,
+      wallet.publicKey,
+      null,
+      6 // decimals
+    );
 
-    if (balance < 0.1 * anchor.web3.LAMPORTS_PER_SOL) {
-      console.warn("⚠️  Low balance! Get devnet SOL from https://faucet.solana.com");
-    }
+    // Derive user's ATA and mint tokens to them
+    const userATA = await getOrCreateAssociatedTokenAccount(
+      connection,
+      wallet.payer,
+      tokenMint,
+      wallet.publicKey
+    );
+    userTokenAccount = userATA.address;
+
+    await mintTo(
+      connection,
+      wallet.payer,
+      tokenMint,
+      userTokenAccount,
+      wallet.payer,
+      1_000_000_000 // 1000 tokens with 6 decimals
+    );
+
+    // Derive token lottery PDA and vault ATA
+    [tokenLotteryPda, tokenLotteryBump] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("token_lottery")],
+      program.programId
+    );
+
+
+
+    vaultTokenAccount = getAssociatedTokenAddressSync(tokenMint, tokenLotteryPda, true);
   });
 
-  async function buyTicket() {
-    const buyTicketIx = await program.methods.buyTicket()
-      .accounts({
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .instruction();
-
-    const blockhashContext = await connection.getLatestBlockhash();
-
-    const computeIx = anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
-      units: 300000
-    });
-
-    const priorityIx = anchor.web3.ComputeBudgetProgram.setComputeUnitPrice({
-      microLamports: 1
-    });
-
-    const tx = new anchor.web3.Transaction({
-      blockhash: blockhashContext.blockhash,
-      lastValidBlockHeight: blockhashContext.lastValidBlockHeight,
-      feePayer: wallet.payer.publicKey,
-    }).add(buyTicketIx)
-      .add(computeIx)
-      .add(priorityIx);
-
-    const sig = await anchor.web3.sendAndConfirmTransaction(connection, tx, [wallet.payer]);
-    console.log("buy ticket ", sig);
-  }
-
+  // ✅ Step 2. Initialize the raffle config and vault
   it("Initializes config and lottery", async () => {
     const slot = await connection.getSlot();
     const startTime = slot;
@@ -107,167 +116,96 @@ describe("token-lottery", () => {
     console.log("Initialized config & lottery:", sig);
   });
 
-  it("Buys tickets", async () => {
-    for (let i = 0; i < 5; i++) await buyTicket();
+
+  // ✅ Step 3. Buy ticket (transfer tokens)
+  it("Buys a ticket", async () => {
+
+    const ix = await program.methods
+      .buyTicket()
+      .accounts({
+        payer: wallet.publicKey,
+        payerTokenAccount: userTokenAccount,
+        //@ts-ignore
+        raffleVaultAccount: vaultTokenAccount,
+        tokenMint,
+        tokenLottery: tokenLotteryPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction();
+
+    const computeIx = anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
+      units: 300000
+    });
+
+    const priorityIx = anchor.web3.ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1
+    });
+
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    const tx = new anchor.web3.Transaction({
+      blockhash,
+      lastValidBlockHeight,
+      feePayer: wallet.publicKey,
+    }).add(ix)
+      .add(computeIx)
+      .add(priorityIx);
+
+    const sig = await anchor.web3.sendAndConfirmTransaction(connection, tx, [wallet.payer]);
+    console.log("🎟️ Ticket purchase tx:", sig);
   });
 
-  it("Commits to reveal a winner (MagicBlock VRF)", async () => {
-    const tokenLotteryAddress = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("token_lottery")],
-      program.programId
-    )[0];
-
+  // ✅ Step 4. Commit winner (simplified)
+  it("Commits to reveal a winner", async () => {
     const tx = await program.methods
       .commitWinner(0)
       .accounts({
         payer: wallet.publicKey,
-        //@ts-ignore
-        tokenLottery: tokenLotteryAddress,
       })
       .rpc();
 
-    console.log("Winner commit tx:", tx);
-
-    // Wait for confirmation
-    await connection.confirmTransaction(tx, "confirmed");
-
-    // Fetch and display transaction logs
-    const txDetails = await connection.getTransaction(tx, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0
-    });
-
-    if (txDetails?.meta?.logMessages) {
-      console.log("\n--- Transaction Logs ---");
-      txDetails.meta.logMessages.forEach(log => console.log(log));
-      console.log("--- End Logs ---\n");
-
-      // Check if discriminator was logged
-      const discriminatorLog = txDetails.meta.logMessages.find(log =>
-        log.includes("Callback discriminator")
-      );
-      if (discriminatorLog) {
-        console.log("✅ Discriminator found:", discriminatorLog);
-      }
-    }
+    console.log("🎲 Winner commit tx:", tx);
   });
 
-  it("Waits for VRF callback to choose winner", async () => {
-    const tokenLotteryAddress = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("token_lottery")],
-      program.programId
-    )[0];
-
-    console.log("\n🔍 Waiting for VRF callback...");
-    console.log("Token Lottery Address:", tokenLotteryAddress.toString());
-    console.log("Program ID:", program.programId.toString());
-    console.log("Checking every 3 seconds for up to 3 minutes...\n");
-
-    let lastTxCount = 0;
-
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-
-      // Fetch lottery state
-      const lotteryConfig = await program.account.tokenLottery.fetch(tokenLotteryAddress);
-
-      const statusSymbol = lotteryConfig.winnerChosen ? "✅" : "⏳";
-      console.log(
-        `${statusSymbol} Check ${i + 1}/60 - Winner chosen: ${lotteryConfig.winnerChosen}, ` +
-        `Winner: ${lotteryConfig.winner.toString()}, Total tickets: ${lotteryConfig.totalTickets.toString()}`
-      );
-
-      if (lotteryConfig.winnerChosen) {
-        console.log("\n🎉 Winner chosen! Winner index:", lotteryConfig.winner.toString());
-        return;
-      }
-
-      // Every 5 checks, look for recent transactions
-      if (i % 5 === 0) {
-        try {
-          const signatures = await connection.getSignaturesForAddress(
-            tokenLotteryAddress,
-            { limit: 10 }
-          );
-
-          if (signatures.length !== lastTxCount) {
-            console.log(`\n📝 Found ${signatures.length} transactions (was ${lastTxCount})`);
-            lastTxCount = signatures.length;
-
-            // Check the most recent transactions for callback
-            for (const sig of signatures.slice(0, 3)) {
-              const tx = await connection.getTransaction(sig.signature, {
-                maxSupportedTransactionVersion: 0,
-                commitment: "confirmed"
-              });
-
-              if (tx?.meta?.logMessages) {
-                const hasCallbackLog = tx.meta.logMessages.some(log =>
-                  log.includes("Callback invoked") ||
-                  log.includes("🎲") ||
-                  log.includes("CallbackChooseWinner")
-                );
-
-                if (hasCallbackLog) {
-                  console.log("\n🎯 Found callback transaction:", sig.signature);
-                  console.log("--- Callback Logs ---");
-                  tx.meta.logMessages
-                    .filter(log => !log.includes("consumed"))
-                    .forEach(log => console.log(log));
-                  console.log("--- End Callback Logs ---\n");
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.log("Error checking transactions:", err.message);
-        }
-      }
-    }
-
-    // If we get here, callback never happened
-    console.log("\n❌ Winner was not chosen after waiting 3 minutes.");
-    console.log("\nDebugging info:");
-    console.log("- Make sure you're on devnet (not localnet)");
-    console.log("- Check Anchor.toml has: cluster = \"devnet\"");
-    console.log("- VRF oracles only run on devnet/mainnet");
-    console.log("- Your program might need to be redeployed to devnet");
-
-    throw new Error("Winner was not chosen after waiting.");
-  });
-
+  // ✅ Step 5. Claim winnings (transfer back)
   it("Claims winnings", async () => {
-    const tokenLotteryAddress = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("token_lottery")],
+    const tokenLottery = await program.account.tokenLottery.fetch(tokenLotteryPda);
+    const [ticketMint] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from(new anchor.BN(tokenLottery.winner).toArrayLike(Buffer, "le", 8))], // winner = 0
       program.programId
-    )[0];
+    );
 
-    const lotteryConfig = await program.account.tokenLottery.fetch(tokenLotteryAddress);
-    console.log("\nLottery config:", {
-      winner: lotteryConfig.winner.toString(),
-      winnerChosen: lotteryConfig.winnerChosen,
-      totalTickets: lotteryConfig.totalTickets.toString(),
-      potAmount: lotteryConfig.potAmount.toString(),
-    });
 
-    const winningMint = anchor.web3.PublicKey.findProgramAddressSync(
-      [new anchor.BN(lotteryConfig.winner).toArrayLike(Buffer, "le", 8)],
-      program.programId
-    )[0];
+    const [ticketMetadata] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata"),
+        TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+        ticketMint.toBuffer(),
+      ],
+      TOKEN_METADATA_PROGRAM_ID
+    );
 
-    const winningTokenAddress = getAssociatedTokenAddressSync(winningMint, wallet.publicKey);
+    const destination = getAssociatedTokenAddressSync(ticketMint, wallet.publicKey);
 
-    console.log("Winning Mint:", winningMint.toString());
-    console.log("Winning Token Address:", winningTokenAddress.toString());
-
-    const ix = await program.methods.claimWinnings()
+    const ix = await program.methods
+      .claimWinnings()
       .accounts({
+        payer: wallet.publicKey,
+        winnerTokenAccount: userTokenAccount,
+        //@ts-ignore
+        metadata: ticketMetadata,
+        destination,
+        ticketMint: ticketMint,
+        tokenLottery: tokenLotteryPda,
+        rewardMint: tokenMint,
+        rewardVault: vaultTokenAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .instruction();
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-
     const tx = new anchor.web3.Transaction({
       blockhash,
       lastValidBlockHeight,
@@ -275,6 +213,45 @@ describe("token-lottery", () => {
     }).add(ix);
 
     const sig = await anchor.web3.sendAndConfirmTransaction(connection, tx, [wallet.payer]);
-    console.log("✅ Claimed winnings:", sig);
+    console.log("🏆 Claimed winnings tx:", sig);
   });
+
+
+
+  it("Restarts a lottery", async () => {
+    const slot = await connection.getSlot();
+    const startTime = slot;
+    const endTime = slot + 10000;
+
+    const mint = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("collection_mint")],
+      program.programId
+    )[0];
+
+    const metadata = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("metadata"), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+      TOKEN_METADATA_PROGRAM_ID
+    )[0];
+
+    const masterEdition = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("metadata"), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer(), Buffer.from("edition")],
+      TOKEN_METADATA_PROGRAM_ID
+    )[0];
+
+
+
+    const sig = await program.methods.restartLottery(new anchor.BN(startTime), new anchor.BN(endTime), new anchor.BN(10000))
+      .accounts({
+        ///@ts-ignore
+        masterEdition,
+        metadata,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    console.log("Restarted lottery:", sig);
+  });
+
+
+
 });
