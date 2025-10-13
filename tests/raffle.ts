@@ -72,9 +72,8 @@ describe("token-lottery", () => {
 
   // ✅ Step 2. Initialize the raffle config and vault
   it("Initializes config and lottery", async () => {
-    const slot = await connection.getSlot();
-    const startTime = slot;
-    const endTime = slot + 10000;
+    const startTime = Math.floor(Date.now() / 1000) - 10;  // started 10 seconds ago
+    const endTime = Math.floor(Date.now() / 1000) + 5;
 
     const mint = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("collection_mint")],
@@ -158,6 +157,9 @@ describe("token-lottery", () => {
 
   // ✅ Step 4. Commit winner (simplified)
   it("Commits to reveal a winner", async () => {
+
+    console.log("⏳ Waiting for lottery to end...");
+    await new Promise((resolve) => setTimeout(resolve, 6000)); 
     const tx = await program.methods
       .commitWinner(0)
       .accounts({
@@ -219,9 +221,8 @@ describe("token-lottery", () => {
 
 
   it("Restarts a lottery", async () => {
-    const slot = await connection.getSlot();
-    const startTime = slot;
-    const endTime = slot + 10000;
+    const startTime = Math.floor(Date.now() / 1000);
+    const endTime = Math.floor(Date.now() / 1000) + 86400;
 
     const mint = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("collection_mint")],

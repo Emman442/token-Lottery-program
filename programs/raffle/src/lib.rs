@@ -23,7 +23,7 @@ pub const symbol: &str="TLT";
 #[constant]
 pub const url: &str="https://raw.githubusercontent.com/Emman442/Quiz-application-with-leaderboard-feature/main/mpl.json
 ";
-declare_id!("ErBDUqKcGRJWSStKB5cjUEB5YWkzfJNrGfkCxMr3XAfQ");
+declare_id!("FF1FU4iVgvKZprsqrzvGiHbfwe3543PDpc3YwSEkNc4D");
 #[program]
 pub mod raffle {
     use super::*;
@@ -33,7 +33,7 @@ pub fn buy_ticket(ctx: Context<BuyTicket>)->Result<()>{
     let clock = Clock::get()?;
     let ticket_name=NAME.to_owned()+ctx.accounts.token_lottery.total_tickets.to_string().as_str();
 
-    if clock.slot < ctx.accounts.token_lottery.start_time || clock.slot >ctx.accounts.token_lottery.end_time {
+    if clock.unix_timestamp < ctx.accounts.token_lottery.start_time || clock.unix_timestamp >ctx.accounts.token_lottery.end_time {
         return Err(ErrorCode::LotteryNotOpen.into())
     }
 
@@ -133,8 +133,8 @@ pub fn buy_ticket(ctx: Context<BuyTicket>)->Result<()>{
 
 pub fn restart_lottery(
     ctx: Context<RestartLottery>,
-    new_start_time: u64,
-    new_end_time: u64,
+    new_start_time: i64,
+    new_end_time: i64,
     new_ticket_price: u64,
 ) -> Result<()> {
     let lottery = &mut ctx.accounts.token_lottery;
@@ -206,7 +206,7 @@ pub fn commit_winner(ctx: Context<CommitWinner>, client_seed: u8) -> Result<()> 
         return Err(ErrorCode::NotAuthorized.into());
     }
 
-      require!(clock.slot >= token_lottery.end_time, ErrorCode::LotteryNotCompleted);
+      require!(clock.unix_timestamp >= token_lottery.end_time, ErrorCode::LotteryNotCompleted);
     require!(!token_lottery.winner_chosen, ErrorCode::WinnerChosen);
 
     let clock = Clock::get()?;
@@ -264,7 +264,7 @@ token_lottery.winner_chosen = true;
     Ok(())
 }
 
-pub fn initialize_config(ctx: Context<InitializeConfig>, start_time: u64, end_time: u64, price: u64)->Result<()>{
+pub fn initialize_config(ctx: Context<InitializeConfig>, start_time: i64, end_time: i64, price: u64)->Result<()>{
     ctx.accounts.token_lottery.bump=ctx.bumps.token_lottery;
     ctx.accounts.token_lottery.start_time= start_time;
     ctx.accounts.token_lottery.end_time = end_time;
@@ -687,8 +687,8 @@ pub enum ErrorCode {
 
 #[event]
 pub struct InitializedConfig {
-    pub start_time: u64,
-    pub end_time: u64,
+    pub start_time: i64,
+    pub end_time: i64,
     pub price: u64
 }
 #[event]
@@ -722,8 +722,8 @@ pub struct WinnerCommited {
 pub struct TokenLottery{
     pub winner: u64,
     pub winner_chosen: bool,
-    pub start_time: u64,
-    pub end_time: u64,
+    pub start_time: i64,
+    pub end_time: i64,
     pub pot_amount: u64,
     pub total_tickets: u64,
     pub ticket_price: u64,
