@@ -32,7 +32,7 @@ pub const symbol: &str = "TLT";
 pub const url: &str =
     "https://raw.githubusercontent.com/Emman442/Quiz-application-with-leaderboard-feature/main/mpl.json";
 
-declare_id!("ACPZPudDLQphJNs7Q4ipFwSCVEKEw3hrSzSw1j1oRLYg");
+declare_id!("BQuBEeVWhtjKUSkmGPEoUo5s3zPnukrFQaFE9FTgFCdN");
 
 #[program]
 pub mod raffle {
